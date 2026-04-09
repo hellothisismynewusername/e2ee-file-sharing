@@ -1,22 +1,25 @@
-use std::sync::OnceLock;
-
-// if true, ip rate limiting for streamed file upload is not disabled
-pub(crate) static DEVELOPMENT_MODE: OnceLock<bool> = OnceLock::new();
-
 // A token corresponds to 1 allowed ws_file_upload()
 /// Time in ms for the per-email upload limiter to replenish by 1 token
-pub(crate) const UPLOAD_RATE_LIMIT_EMAIL_REPLENISH_TIME: u64 = 2000;
+pub const UPLOAD_RATE_LIMIT_EMAIL_REPLENISH_TIME: u64 = 2000;
 /// Time in ms for the per-IP upload limiter limit bucket to replenish by 1 token
-pub(crate) const UPLOAD_RATE_LIMIT_IP_REPLENISH_TIME: u64 = 1000;
+pub const UPLOAD_RATE_LIMIT_IP_REPLENISH_TIME: u64 = 1000;
+/// Maximum number of upload requests allowed in a burst per email
+pub const UPLOAD_RATE_LIMIT_EMAIL_BURST_SIZE: u32 = 5;
+/// Maximum number of upload requests allowed in a burst per IP
+pub const UPLOAD_RATE_LIMIT_IP_BURST_SIZE: u32 = 10;
 
 // A token corresponds to 1 allowed general API call (list_files, get_file, etc.)
 /// Time in ms for the per-email general limiter to replenish by 1 token
-pub(crate) const GENERAL_RATE_LIMIT_EMAIL_REPLENISH_TIME: u64 = 200;
+pub const GENERAL_RATE_LIMIT_EMAIL_REPLENISH_TIME: u64 = 200;
 /// Time in ms for the per-IP general limiter limit bucket to replenish by 1 token
-pub(crate) const GENERAL_RATE_LIMIT_IP_REPLENISH_TIME: u64 = 100;
+pub const GENERAL_RATE_LIMIT_IP_REPLENISH_TIME: u64 = 100;
+/// Maximum number of general API requests allowed in a burst per email
+pub const GENERAL_RATE_LIMIT_EMAIL_BURST_SIZE: u32 = 30;
+/// Maximum number of general API requests allowed in a burst per IP
+pub const GENERAL_RATE_LIMIT_IP_BURST_SIZE: u32 = 60;
 
-pub(crate) fn set_dev_mode() {
-    let development_mode = match std::env::var("EFS_SERVER_DEVELOPMENT_MODE") {
+pub fn development_mode_from_env() -> bool {
+    match std::env::var("EFS_SERVER_DEVELOPMENT_MODE") {
         Ok(variable) => match variable.as_ref() {
             "1" => {
                 println!("DEVELOPMENT_MODE is enabled");
@@ -30,8 +33,5 @@ pub(crate) fn set_dev_mode() {
             );
             false
         }
-    };
-    DEVELOPMENT_MODE
-        .set(development_mode)
-        .expect("Couldn't evaluate DEVELOPMENT_MODE");
+    }
 }
