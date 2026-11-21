@@ -131,7 +131,7 @@ pub extern "C" fn get_user_info_binded(
                     return -4;
                 }
 
-                out_key_pair.write(key_pair);
+                *out_key_pair = key_pair;
                 std::ptr::copy_nonoverlapping(
                     password_hash.as_ptr(),
                     out_password_hash.cast::<u8>(), // use c_char* in function signatures so that cbindgen emits char*, but a lot of the builtin byte-level APIs accept u8, and I think there's some platform inconsistencies w/ i8 vs u8
