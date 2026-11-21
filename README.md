@@ -37,6 +37,10 @@ The server is a standalone application and can be executed:
 cargo run
 ```
 
+## Client-core
+
+Includes client code (registering, downloading, creating groups, etc), and also cdylib bindings. Does not have any executable binary.
+
 ## CLI
 
 The CLI is a command line interface for the application. It is one of the
