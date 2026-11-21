@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use cli::{download, get_user_info, register, upload};
 use rpassword::read_password;
 use std::{
     env,
@@ -101,7 +100,7 @@ fn main() {
     // register is a special case that we need to handle
     // before the others since the user SHOULDN'T exist yet
     if let Subcommands::Register {} = args.command {
-        if let Err(e) = register(SERVER_URL, &args.email, &password, disk_key_path) {
+        if let Err(e) = client_core::register(SERVER_URL, &args.email, &password, disk_key_path) {
             eprintln!("Failed to register: {e}");
         } else {
             eprintln!("Registration successful!");
@@ -111,7 +110,7 @@ fn main() {
 
     // retrieve kp and validate user by using email and password
     let (kp, encoded_password, _) =
-        match get_user_info(SERVER_URL, &args.email, &password, disk_key_path) {
+        match client_core::get_user_info(SERVER_URL, &args.email, &password, disk_key_path) {
             Ok((kp, encoded_password, user_id)) => (kp, encoded_password, user_id),
             Err(e) => {
                 eprintln!("Failed to get user info: {e}");
@@ -126,7 +125,7 @@ fn main() {
             output,
             stdout,
         } => {
-            if let Err(e) = download(
+            if let Err(e) = client_core::download(
                 SERVER_URL,
                 &args.email,
                 &encoded_password,
@@ -154,7 +153,7 @@ fn main() {
                 (Box::new(tmp.0), tmp.1)
             };
 
-            match upload(
+            match client_core::upload(
                 SERVER_URL,
                 &args.email,
                 &encoded_password,

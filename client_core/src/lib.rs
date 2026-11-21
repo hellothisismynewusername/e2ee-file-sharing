@@ -1,3 +1,5 @@
+pub mod bindings;
+
 use std::{
     collections::VecDeque,
     error::Error,

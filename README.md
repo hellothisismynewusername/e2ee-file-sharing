@@ -37,9 +37,23 @@ The server is a standalone application and can be executed:
 cargo run
 ```
 
-## Client-core
+## Client Core
 
-Includes client code (registering, downloading, creating groups, etc), and also cdylib bindings. Does not have any executable binary.
+Includes client code (registering, downloading, creating groups, etc), and also C compatible bindings. Does not have any executable binary.
+
+Build the dylib using:
+
+```bash
+cargo build --package client_core --release
+```
+
+and generate the headers using:
+
+```bash
+cbindgen --crate client_core --output client_core/include/client_core.h
+```
+
+You may need to install `cbindgen` using `cargo install cbindgen`.
 
 ## CLI
 
