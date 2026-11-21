@@ -62,15 +62,13 @@ pub fn get_user_info(
     let keys: DiskKeys = postcard::from_bytes(bytes.as_slice())
         .map_err(|e| GetUserInfoError::OtherWithDetails(Box::new(e)))?;
     let personal_key = PersonalKey::derive(email, password);
-    let kp = keys
-        .to_memory(&personal_key)
-        .map_err(|b| {
-            if b {
-                GetUserInfoError::PasswordFail
-            } else {
-                GetUserInfoError::Other
-            }
-        })?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
+    let kp = keys.to_memory(&personal_key).map_err(|b| {
+        if b {
+            GetUserInfoError::PasswordFail
+        } else {
+            GetUserInfoError::Other
+        }
+    })?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
     let encoded_password = BASE64_URL_SAFE.encode(personal_key.hash().to_vec());
 
     // double check that password is correct
@@ -221,9 +219,9 @@ fn get_group_key(
     // decode it
     let group_key_decoded = BASE64_STANDARD.decode(&group_key_response.key)?;
     // and finally decrypt it
-    let group_key = kp.get_group_key(&group_key_decoded).map_err(|_| {
-        "Failed to decrypt key"
-    })?;
+    let group_key = kp
+        .get_group_key(&group_key_decoded)
+        .map_err(|_| "Failed to decrypt key")?;
     Ok(group_key)
 }
 
@@ -313,7 +311,9 @@ pub fn download(
         )));
     }
 
-    let cipher = group_key.get_cipher().map_err(|_| "Failed to init AES-GCM")?;
+    let cipher = group_key
+        .get_cipher()
+        .map_err(|_| "Failed to init AES-GCM")?;
 
     let mut nonce_start: [u8; 8] = [0; 8];
     resp.read_exact(&mut nonce_start)?;
@@ -548,21 +548,19 @@ pub fn upload<R: Read>(
     let (mut socket, _) = tungstenite::connect(url_str).map_err(|_| {
         Box::new(io::Error::new(
             io::ErrorKind::Unsupported, // this is just to seperate out this particular error spot
-            "Can't connect to WebSocket server"
+            "Can't connect to WebSocket server",
         ))
     })?;
 
     // send file name
     let file_name_utf8 = Utf8Bytes::from(file_name);
 
-    socket
-        .send(Message::Text(file_name_utf8))
-        .map_err(|_| {
-            Box::new(io::Error::new(
-                io::ErrorKind::Other,
-                "Failed to send filename",
-            ))
-        })?;
+    socket.send(Message::Text(file_name_utf8)).map_err(|_| {
+        Box::new(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to send filename",
+        ))
+    })?;
 
     // wait for the server's acknowledgement
     match socket.read() {
@@ -575,7 +573,9 @@ pub fn upload<R: Read>(
         }
     }
 
-    let cipher = group_key.get_cipher().map_err(|_| "Failed to init AES-GCM")?;
+    let cipher = group_key
+        .get_cipher()
+        .map_err(|_| "Failed to init AES-GCM")?;
 
     let fse = FileStreamEncryptor::new(cipher);
 

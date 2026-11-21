@@ -1,5 +1,6 @@
 use aes_gcm::{
-    Aes256Gcm, Key, Nonce, aead::{Aead, AeadCore, AeadInPlace, KeyInit, Payload},
+    Aes256Gcm, Key, Nonce,
+    aead::{Aead, AeadCore, AeadInPlace, KeyInit, Payload},
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::rngs::OsRng;
@@ -132,18 +133,16 @@ impl PkKeyPair {
     /// # Returns
     ///
     /// The decrypted group key
-    /// 
+    ///
     /// Only `Err`s on failed to decrypt key.
     pub fn get_group_key(&self, group_key_encrypted: &[u8]) -> Result<GroupKey, ()> {
         // decrypt the encrypted group key with the private key
-        Ok(
-            GroupKey {
-                key: self
-                    .pkpriv
-                    .decrypt(Pkcs1v15Encrypt, group_key_encrypted)
-                    .map_err(|_| ())?,
-            }
-        )
+        Ok(GroupKey {
+            key: self
+                .pkpriv
+                .decrypt(Pkcs1v15Encrypt, group_key_encrypted)
+                .map_err(|_| ())?,
+        })
     }
 }
 
@@ -199,7 +198,7 @@ impl DiskKeys {
     /// # Returns
     ///
     /// The decrypted PkKeyPair
-    /// 
+    ///
     /// Error bool:
     /// * `true` - Provided authentication tag does not match the given ciphertex.
     /// * `false` - Something bad happened and if this happens your machine probably has bigger issues to fry.
@@ -214,11 +213,16 @@ impl DiskKeys {
 
         let mut buffer = self.pk_priv_prot;
 
-        cipher.decrypt_in_place(&nonce, b"", &mut buffer).map_err(|_| true)?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
+        cipher
+            .decrypt_in_place(&nonce, b"", &mut buffer)
+            .map_err(|_| true)?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
 
         Ok(PkKeyPair {
             pkpub: DecodePublicKey::from_public_key_pem(&self.pk_pub).map_err(|_| false)?,
-            pkpriv: DecodePrivateKey::from_pkcs8_pem(&String::from_utf8(buffer).map_err(|_| false)?).map_err(|_| false)?,
+            pkpriv: DecodePrivateKey::from_pkcs8_pem(
+                &String::from_utf8(buffer).map_err(|_| false)?,
+            )
+            .map_err(|_| false)?,
         })
     }
 }
@@ -296,11 +300,11 @@ impl GroupKey {
             Aes256Gcm::new_from_slice(self.key.as_slice()).expect("Failed to init AES-GCM");
 
         if encrypted_file.nonce.len() != 12 {
-            return Err("Decrypted file had malformed nonce")
+            return Err("Decrypted file had malformed nonce");
         }
 
         let nonce = GenericArray::from_slice(encrypted_file.nonce.as_slice());
-        
+
         Ok(cipher
             .decrypt(&nonce, encrypted_file.bytes.as_slice())
             .map_err(|_| "Failed to decrypt file")?)
@@ -311,7 +315,7 @@ impl GroupKey {
     ///
     /// # Returns
     /// The cipher
-    /// 
+    ///
     /// `Err`s on failed to init AES-GCM.
     pub fn get_cipher(&self) -> Result<Aes256Gcm, ()> {
         Ok(Aes256Gcm::new_from_slice(self.key.as_slice()).map_err(|_| ())?)
@@ -536,8 +540,12 @@ mod tests {
         // encrypt group key for them and recover
         let encrypted_group_keys =
             GroupKey::make_encrypted_group_keys(&[kp1.pkpub.clone(), kp2.pkpub.clone()]);
-        let recovered_group_key1 = kp1.get_group_key(&encrypted_group_keys[0]).expect("Failed to decrypt key");
-        let recovered_group_key2 = kp2.get_group_key(&encrypted_group_keys[1]).expect("Failed to decrypt key");
+        let recovered_group_key1 = kp1
+            .get_group_key(&encrypted_group_keys[0])
+            .expect("Failed to decrypt key");
+        let recovered_group_key2 = kp2
+            .get_group_key(&encrypted_group_keys[1])
+            .expect("Failed to decrypt key");
         assert_eq!(recovered_group_key1, recovered_group_key2);
 
         // encrypt things with group key and recover

@@ -1,6 +1,7 @@
 use std::{
     ffi::{CStr, CString, c_char},
     fs::File,
+    panic::UnwindSafe,
     path::{Path, PathBuf},
 };
 
@@ -40,6 +41,19 @@ pub extern "C" fn free_String(ptr: *mut c_char) {
     }
 }
 
+pub const ERR_PANIC: i32 = -67;
+
+// we want panic = "unwind" (instead of "abort"), although the build in debug & release should already be like that by default.
+fn ffi_catch_unwind_wrapper(func: impl FnOnce() -> i32 + UnwindSafe) -> i32 {
+    match std::panic::catch_unwind(func) {
+        Ok(func_return) => func_return,
+        Err(payload) => {
+            std::mem::forget(payload); // dropping a custom panic payload can panic itself supposedly
+            ERR_PANIC
+        }
+    }
+}
+
 /// Decrypts the user's private key and fetches their user info from the server  
 ///
 /// # Arguments  
@@ -66,13 +80,42 @@ pub extern "C" fn free_String(ptr: *mut c_char) {
 /// * `-4` - Password hash buffer is too small.
 /// * `-5` - Email/password fail, writes to `out_error` if not null.
 /// * `-6` - Other server fail, writes to `out_error` if not null.
-/// * `-7` - Inexplicable other server fail, does not write to `out_error`.  
+/// * `-7` - Inexplicable other server fail, does not write to `out_error`.
+/// * `-67` (`ERR_PANIC`) - Caught panic.  
 ///
 /// Good path out params:  
 ///
 /// A `PkKeyPair` opaque handle through `out_key_pair`, and the password hash and user id as the other mutable outputs.
 #[unsafe(no_mangle)]
 pub extern "C" fn get_user_info_binded(
+    server_url: *const c_char,
+    email: *const c_char,
+    password: *const c_char,
+    disk_key_path: *const c_char,
+    out_key_pair: *mut PkKeyPair,
+    out_password_hash: *mut c_char,
+    out_password_hash_capacity: usize,
+    out_user_id: *mut i64,
+    out_error: *mut c_char,
+    out_error_len: usize,
+) -> i32 {
+    ffi_catch_unwind_wrapper(|| {
+        get_user_info_internal(
+            server_url,
+            email,
+            password,
+            disk_key_path,
+            out_key_pair,
+            out_password_hash,
+            out_password_hash_capacity,
+            out_user_id,
+            out_error,
+            out_error_len,
+        )
+    })
+}
+
+fn get_user_info_internal(
     server_url: *const c_char,
     email: *const c_char,
     password: *const c_char,
@@ -196,8 +239,18 @@ pub extern "C" fn get_user_info_binded(
 /// * `-1` - Parameter error (null pointer).
 /// * `-2` - Internal casting errors.
 /// * `-3` - Internal library errors.
+/// * `-67` (`ERR_PANIC`) - Caught panic.  
 #[unsafe(no_mangle)]
 pub extern "C" fn register_binded(
+    server_url: *const c_char,
+    email: *const c_char,
+    password: *const c_char,
+    disk_key_path: *const c_char,
+) -> i32 {
+    ffi_catch_unwind_wrapper(|| register_internal(server_url, email, password, disk_key_path))
+}
+
+fn register_internal(
     server_url: *const c_char,
     email: *const c_char,
     password: *const c_char,
@@ -254,8 +307,31 @@ pub extern "C" fn register_binded(
 /// * `-1` - Parameter error (null pointers or misaligned key pair).
 /// * `-2` - Internal casting errors.
 /// * `-3` - Internal library errors.
+/// * `-67` (`ERR_PANIC`) - Caught panic.  
 #[unsafe(no_mangle)]
 pub extern "C" fn download_binded(
+    server_url: *const c_char,
+    email: *const c_char,
+    encoded_password: *const c_char,
+    kp: *const PkKeyPair,
+    file_id: i64,
+    output: *const c_char,
+    stdout: bool,
+) -> i32 {
+    ffi_catch_unwind_wrapper(|| {
+        download_internal(
+            server_url,
+            email,
+            encoded_password,
+            kp,
+            file_id,
+            output,
+            stdout,
+        )
+    })
+}
+
+fn download_internal(
     server_url: *const c_char,
     email: *const c_char,
     encoded_password: *const c_char,
@@ -334,8 +410,35 @@ pub extern "C" fn download_binded(
 /// * `-2` - Internal casting errors.
 /// * `-3` - Internal library errors.
 /// * `-4` - Could not establish connection to WebSocket server.
+/// * `-67` (`ERR_PANIC`) - Caught panic.  
 #[unsafe(no_mangle)]
 pub extern "C" fn upload_binded(
+    server_url: *const c_char,
+    email: *const c_char,
+    encoded_password: *const c_char,
+    kp: *const PkKeyPair,
+    file_path: *const c_char,
+    file_name: *const c_char,
+    emails: *const *const c_char,
+    email_count: usize,
+    out_file_id: *mut i64,
+) -> i32 {
+    ffi_catch_unwind_wrapper(|| {
+        upload_internal(
+            server_url,
+            email,
+            encoded_password,
+            kp,
+            file_path,
+            file_name,
+            emails,
+            email_count,
+            out_file_id,
+        )
+    })
+}
+
+fn upload_internal(
     server_url: *const c_char,
     email: *const c_char,
     encoded_password: *const c_char,
@@ -418,7 +521,7 @@ pub extern "C" fn upload_binded(
             Ok(file_id) => {
                 out_file_id.write(file_id);
                 0
-            },
+            }
             Err(err_box) => {
                 if let Some(e) = err_box.downcast_ref::<std::io::Error>() {
                     if e.kind() == std::io::ErrorKind::Unsupported {

@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define ERR_PANIC -67
+
 /**
  * In-memory only.
  */
@@ -56,7 +58,8 @@ void free_String(char *ptr);
  * * `-4` - Password hash buffer is too small.
  * * `-5` - Email/password fail, writes to `out_error` if not null.
  * * `-6` - Other server fail, writes to `out_error` if not null.
- * * `-7` - Inexplicable other server fail, does not write to `out_error`.  
+ * * `-7` - Inexplicable other server fail, does not write to `out_error`.
+ * * `-67` (`ERR_PANIC`) - Caught panic.  
  *
  * Good path out params:  
  *
@@ -89,6 +92,7 @@ int32_t get_user_info_binded(const char *server_url,
  * * `-1` - Parameter error (null pointer).
  * * `-2` - Internal casting errors.
  * * `-3` - Internal library errors.
+ * * `-67` (`ERR_PANIC`) - Caught panic.  
  */
 int32_t register_binded(const char *server_url,
                         const char *email,
@@ -114,6 +118,7 @@ int32_t register_binded(const char *server_url,
  * * `-1` - Parameter error (null pointers or misaligned key pair).
  * * `-2` - Internal casting errors.
  * * `-3` - Internal library errors.
+ * * `-67` (`ERR_PANIC`) - Caught panic.  
  */
 int32_t download_binded(const char *server_url,
                         const char *email,
@@ -144,6 +149,8 @@ int32_t download_binded(const char *server_url,
  * * `-1` - Parameter error (null pointers or misaligned pointers).
  * * `-2` - Internal casting errors.
  * * `-3` - Internal library errors.
+ * * `-4` - Could not establish connection to WebSocket server.
+ * * `-67` (`ERR_PANIC`) - Caught panic.  
  */
 int32_t upload_binded(const char *server_url,
                       const char *email,
