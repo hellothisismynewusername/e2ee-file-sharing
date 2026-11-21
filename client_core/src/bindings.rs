@@ -6,7 +6,7 @@ use std::{
 
 use corelib::client::PkKeyPair;
 
-use crate::get_user_info;
+use crate::{GetUserInfoError, get_user_info};
 
 /// Do *not* use this until initialized by one of the other exposed API functions; use this to create a handle to pass into exposed API functions.  
 ///
@@ -44,10 +44,12 @@ pub extern "C" fn free_String(ptr: *mut c_char) {
 ///
 /// # Arguments  
 ///
-/// * `server_url` - The URL of the server
-/// * `email` - The email of the user
-/// * `password` - The password of the user
-/// * `disk_key_path` - The path to the disk key directory  
+/// * `server_url` - The URL of the server.
+/// * `email` - The email of the user.
+/// * `password` - The password of the user.
+/// * `disk_key_path` - The path to the disk key directory.
+/// * `out_error` - Optional, pass in null or pass in a pre-allocated buffer of at least `512` bytes.
+/// * `out_error_len` - Max capacity of `out_error` should you choose to use it. Must be at least `512`.  
 ///
 /// Out params:
 /// * `out_key_pair` - Use `new_PkKeyPair()` to get a `PkKeyPair` handle to pass in.
@@ -59,11 +61,14 @@ pub extern "C" fn free_String(ptr: *mut c_char) {
 ///
 /// Error codes:
 /// * `-1` - Parameter error (null ptrs, `out_key_pair` or `out_user_id` isn't aligned).
-/// * `-2` - Internal casting errors.
-/// * `-3` - Internal library errors.
-/// * `-4` - Password hash buffer is too small.  
+/// * `-2` - Non-null `out_error` was passed in, but `out_error_len` capacity is not at least `512` bytes.
+/// * `-3` - Internal casting errors
+/// * `-4` - Password hash buffer is too small.
+/// * `-5` - Email/password fail, writes to `out_error` if not null.
+/// * `-6` - Other server fail, writes to `out_error` if not null.
+/// * `-7` - Inexplicable other server fail, does not write to `out_error`.  
 ///
-/// Out params:  
+/// Good path out params:  
 ///
 /// A `PkKeyPair` opaque handle through `out_key_pair`, and the password hash and user id as the other mutable outputs.
 #[unsafe(no_mangle)]
@@ -76,6 +81,8 @@ pub extern "C" fn get_user_info_binded(
     out_password_hash: *mut c_char,
     out_password_hash_capacity: usize,
     out_user_id: *mut i64,
+    out_error: *mut c_char,
+    out_error_len: usize,
 ) -> i32 {
     if server_url.is_null()
         || email.is_null()
@@ -90,28 +97,31 @@ pub extern "C" fn get_user_info_binded(
     if !out_key_pair.is_aligned() || !out_user_id.is_aligned() {
         return -1;
     }
+    if !out_error.is_null() && out_error_len < 512 {
+        return -2;
+    }
 
     unsafe {
         let server_url_a = if let Ok(x) = CStr::from_ptr(server_url).to_str() {
             x
         } else {
-            return -2;
+            return -3;
         };
         let email_a = if let Ok(x) = CStr::from_ptr(email).to_str() {
             x
         } else {
-            return -2;
+            return -3;
         };
         let password_a = if let Ok(x) = CStr::from_ptr(password).to_str() {
             // yup password in plaintext. the original behaviour alr did that though, so...
             x
         } else {
-            return -2;
+            return -3;
         };
         let disk_key_path_a = if let Ok(x) = CStr::from_ptr(disk_key_path).to_str() {
             Path::new(x)
         } else {
-            return -2;
+            return -3;
         };
 
         match get_user_info(server_url_a, email_a, password_a, disk_key_path_a) {
@@ -132,8 +142,41 @@ pub extern "C" fn get_user_info_binded(
 
                 0
             }
+            Err(GetUserInfoError::PasswordFail) => {
+                if !out_error.is_null() {
+                    const PASSWORD_ERROR_TEXT: [u8; 60] =
+                        *b"Could not authenticate: Email/password don't match records.\0";
 
-            Err(_) => -3,
+                    std::ptr::copy_nonoverlapping(
+                        PASSWORD_ERROR_TEXT.as_ptr(),
+                        out_error.cast::<u8>(),
+                        PASSWORD_ERROR_TEXT.len(),
+                    );
+                }
+                -5
+            }
+            Err(GetUserInfoError::OtherWithDetails(e)) => {
+                if !out_error.is_null() {
+                    let error_message = format!("{}", e);
+                    let error_message_bytes: Box<[u8]> = error_message.bytes().collect();
+
+                    let error_message_len = error_message_bytes.len().min(out_error_len - 1);
+
+                    std::ptr::copy_nonoverlapping(
+                        error_message_bytes.as_ptr(),
+                        out_error.cast::<u8>(),
+                        error_message_len,
+                    );
+
+                    out_error
+                        .cast::<u8>()
+                        .add(error_message_len)
+                        .write('\0' as u8);
+                }
+
+                -6
+            }
+            Err(GetUserInfoError::Other) => -7,
         }
     }
 }

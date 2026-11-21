@@ -10,11 +10,11 @@ typedef struct PkKeyPair PkKeyPair;
 
 /**
  * Do *not* use this until initialized by one of the other exposed API functions; use this to create a handle to pass into exposed API functions.  
- * 
+ *
  * Use `free_PkKeyPair()` to free `PkKeyPair`s.  
- * 
+ *
  * # Returns  
- * 
+ *
  * An opaque handle for `PkKeyPair`
  */
 struct PkKeyPair *new_PkKeyPair(void);
@@ -31,30 +31,35 @@ void free_String(char *ptr);
 
 /**
  * Decrypts the user's private key and fetches their user info from the server  
- * 
+ *
  * # Arguments  
  *
- * * `server_url` - The URL of the server
- * * `email` - The email of the user
- * * `password` - The password of the user
- * * `disk_key_path` - The path to the disk key directory  
- * 
+ * * `server_url` - The URL of the server.
+ * * `email` - The email of the user.
+ * * `password` - The password of the user.
+ * * `disk_key_path` - The path to the disk key directory.
+ * * `out_error` - Optional, pass in null or pass in a pre-allocated buffer of at least `512` bytes.
+ * * `out_error_len` - Max capacity of `out_error` should you choose to use it. Must be at least `512`.  
+ *
  * Out params:
  * * `out_key_pair` - Use `new_PkKeyPair()` to get a `PkKeyPair` handle to pass in.
  * * `out_password_hash` - The buffer to receive the null-terminated password hash.
  * * `out_password_hash_capacity` - The size of the password hash buffer.
  * * `out_user_id` - Ensure this isn't null and also is aligned.  
- * 
+ *
  * # Returns  
- * 
+ *
  * Error codes:
  * * `-1` - Parameter error (null ptrs, `out_key_pair` or `out_user_id` isn't aligned).
- * * `-2` - Internal casting errors.
- * * `-3` - Internal library errors.
- * * `-4` - Password hash buffer is too small.  
- * 
- * Out params:  
- * 
+ * * `-2` - Non-null `out_error` was passed in, but `out_error_len` capacity is not at least `512` bytes.
+ * * `-3` - Internal casting errors
+ * * `-4` - Password hash buffer is too small.
+ * * `-5` - Email/password fail, writes to `out_error` if not null.
+ * * `-6` - Other server fail, writes to `out_error` if not null.
+ * * `-7` - Inexplicable other server fail, does not write to `out_error`.  
+ *
+ * Good path out params:  
+ *
  * A `PkKeyPair` opaque handle through `out_key_pair`, and the password hash and user id as the other mutable outputs.
  */
 int32_t get_user_info_binded(const char *server_url,
@@ -64,7 +69,9 @@ int32_t get_user_info_binded(const char *server_url,
                              struct PkKeyPair *out_key_pair,
                              char *out_password_hash,
                              uintptr_t out_password_hash_capacity,
-                             int64_t *out_user_id);
+                             int64_t *out_user_id,
+                             char *out_error,
+                             uintptr_t out_error_len);
 
 /**
  * Registers a new user.  

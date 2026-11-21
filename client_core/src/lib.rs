@@ -24,7 +24,7 @@ use tungstenite::{Bytes, Message, Utf8Bytes};
 pub enum GetUserInfoError {
     PasswordFail,
     OtherWithDetails(Box<dyn Error>),
-    Other, // Rare aesthetic: Blowing it off clean
+    Other,
 }
 
 impl Display for GetUserInfoError {
