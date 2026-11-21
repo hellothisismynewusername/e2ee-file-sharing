@@ -3,6 +3,7 @@ pub mod bindings;
 use std::{
     collections::VecDeque,
     error::Error,
+    fmt::Display,
     fs::{self, OpenOptions},
     io::{self, BufWriter, Read, Write},
     path::{Path, PathBuf},
@@ -18,6 +19,25 @@ use reqwest::StatusCode;
 use rpassword::read_password;
 use rsa::pkcs8::DecodePublicKey;
 use tungstenite::{Bytes, Message, Utf8Bytes};
+
+#[derive(Debug)]
+pub enum GetUserInfoError {
+    PasswordFail,
+    OtherWithDetails(Box<dyn Error>),
+    Other, // Rare aesthetic: Blowing it off clean
+}
+
+impl Display for GetUserInfoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GetUserInfoError::PasswordFail => write!(f, "GetUserInfoError: Email/password fail"),
+            GetUserInfoError::OtherWithDetails(e) => write!(f, "GetUserInfoError: Other: {}", e),
+            GetUserInfoError::Other => write!(f, "GetUserInfoError: Other"),
+        }
+    }
+}
+
+impl Error for GetUserInfoError {}
 
 /// Decrypts the user's private key and fetches their user info from the server
 ///
@@ -36,30 +56,67 @@ pub fn get_user_info(
     email: &str,
     password: &str,
     disk_key_path: &Path,
-) -> Result<(PkKeyPair, String, i64), Box<dyn Error>> {
+) -> Result<(PkKeyPair, String, i64), GetUserInfoError> {
     // look in storage to recover our kp and key hash
-    let bytes = fs::read(disk_key_path.join(email))?;
-    let keys: DiskKeys = postcard::from_bytes(bytes.as_slice())?;
+    let bytes = fs::read(disk_key_path.join(email))
+        .map_err(|e| GetUserInfoError::OtherWithDetails(Box::new(e)))?;
+    let keys: DiskKeys = postcard::from_bytes(bytes.as_slice())
+        .map_err(|e| GetUserInfoError::OtherWithDetails(Box::new(e)))?;
     let personal_key = PersonalKey::derive(email, password);
-    let kp = keys.to_memory(&personal_key);
+    let kp = keys
+        .to_memory(&personal_key)
+        .map_err(|_| GetUserInfoError::PasswordFail)?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
     let encoded_password = BASE64_URL_SAFE.encode(personal_key.hash().to_vec());
 
     // double check that password is correct
     // by fetching to user info endpoint
     let client = reqwest::blocking::Client::new();
-    let resp = client
+    let resp = match client
         .get(format!(
             "{server_url}/api/v1/user/info?user_email={email}&user_password_hash={encoded_password}",
         ))
-        .send()?;
-    if !resp.status().is_success() {
-        return Err(Box::from(format!(
+        .send() {
+            Ok(x) => x,
+            Err(e) => {
+                return Err(GetUserInfoError::OtherWithDetails(Box::new(e)));
+            }
+        };
+
+    let resp_status = resp.status();
+
+    if !resp_status.is_success() {
+        return Err(GetUserInfoError::OtherWithDetails(Box::from(format!(
             "Server responded to user info request with:\nStatus: {}\nResponse: {}",
             resp.status(),
-            resp.text()?
-        )));
+            if let Ok(text) = resp.text() {
+                text
+            } else {
+                return Err(GetUserInfoError::Other);
+            }
+        ))));
     }
-    let info: UserId = resp.json()?;
+
+    let resp_bytes = resp
+        .bytes()
+        .map_err(|e| return GetUserInfoError::OtherWithDetails(Box::new(e)))?;
+
+    let resp_json = serde_json::from_slice::<UserId>(&resp_bytes);
+    let info: UserId = match resp_json {
+        Ok(x) => x,
+        Err(e) => {
+            return Err(GetUserInfoError::OtherWithDetails(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "Server responded to user info request with:\nStatus: {}\nResponse: {}\nJSON error: {}",
+                        resp_status,
+                        String::from_utf8_lossy(&resp_bytes),
+                        e
+                    ),
+                ),
+            )));
+        }
+    };
     let user_id = info.user_id;
     Ok((kp, encoded_password, user_id))
 }

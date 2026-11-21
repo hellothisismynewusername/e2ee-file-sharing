@@ -196,19 +196,18 @@ impl DiskKeys {
     /// # Returns
     ///
     /// The decrypted PkKeyPair
-    pub fn to_memory(self, personal_key: &PersonalKey) -> PkKeyPair {
+    pub fn to_memory(self, personal_key: &PersonalKey) -> Result<PkKeyPair, aes_gcm::Error> {
         let cipher = Aes256Gcm::new(personal_key.as_aes256gcm_key());
         let nonce = GenericArray::from_slice(self.nonce.as_slice());
 
         let mut buffer = self.pk_priv_prot;
-        cipher
-            .decrypt_in_place(&nonce, b"", &mut buffer)
-            .expect("Failed to decrypt priv key!");
 
-        PkKeyPair {
+        cipher.decrypt_in_place(&nonce, b"", &mut buffer)?;
+
+        Ok(PkKeyPair {
             pkpub: DecodePublicKey::from_public_key_pem(&self.pk_pub).unwrap(),
             pkpriv: DecodePrivateKey::from_pkcs8_pem(&String::from_utf8(buffer).unwrap()).unwrap(),
-        }
+        })
     }
 }
 
@@ -501,7 +500,7 @@ mod tests {
         let kp = PkKeyPair::new();
         let disk_keys = DiskKeys::new(&personal_key, &kp);
         // make sure that its to_memory works
-        let kp_recovered = disk_keys.to_memory(&personal_key);
+        let kp_recovered = disk_keys.to_memory(&personal_key).unwrap();
         assert_eq!(kp.pkpub, kp_recovered.pkpub);
         assert_eq!(kp.pkpriv, kp_recovered.pkpriv);
     }
