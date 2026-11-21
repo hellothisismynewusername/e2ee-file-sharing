@@ -16,7 +16,6 @@ use corelib::client::{
 };
 use models::*;
 use reqwest::StatusCode;
-use rpassword::read_password;
 use rsa::pkcs8::DecodePublicKey;
 use tungstenite::{Bytes, Message, Utf8Bytes};
 
@@ -65,7 +64,13 @@ pub fn get_user_info(
     let personal_key = PersonalKey::derive(email, password);
     let kp = keys
         .to_memory(&personal_key)
-        .map_err(|_| GetUserInfoError::PasswordFail)?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
+        .map_err(|b| {
+            if b {
+                GetUserInfoError::PasswordFail
+            } else {
+                GetUserInfoError::Other
+            }
+        })?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
     let encoded_password = BASE64_URL_SAFE.encode(personal_key.hash().to_vec());
 
     // double check that password is correct
@@ -135,14 +140,6 @@ pub fn register(
     password: &str,
     disk_key_path: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    // confirm password
-    eprint!("Confirm password: ");
-    io::stderr().flush()?;
-    if password != read_password()? {
-        return Err(Box::from("Passwords do not match"));
-    }
-
-    // passwords match
     // first, check if we already have a key
     if fs::exists(disk_key_path.join(email))? {
         return Err(Box::from(
@@ -224,7 +221,9 @@ fn get_group_key(
     // decode it
     let group_key_decoded = BASE64_STANDARD.decode(&group_key_response.key)?;
     // and finally decrypt it
-    let group_key = kp.get_group_key(&group_key_decoded);
+    let group_key = kp.get_group_key(&group_key_decoded).map_err(|_| {
+        "Failed to decrypt key"
+    })?;
     Ok(group_key)
 }
 
@@ -314,7 +313,7 @@ pub fn download(
         )));
     }
 
-    let cipher = group_key.get_cipher();
+    let cipher = group_key.get_cipher().map_err(|_| "Failed to init AES-GCM")?;
 
     let mut nonce_start: [u8; 8] = [0; 8];
     resp.read_exact(&mut nonce_start)?;
@@ -546,14 +545,24 @@ pub fn upload<R: Read>(
         "ws{url_str_trimmed}/ws/file-upload?group_id={group_id}&user_email={email}&user_password_hash={encoded_password}"
     );
 
-    let (mut socket, _) = tungstenite::connect(url_str).expect("Can't connect to WebSocket server");
+    let (mut socket, _) = tungstenite::connect(url_str).map_err(|_| {
+        Box::new(io::Error::new(
+            io::ErrorKind::Unsupported, // this is just to seperate out this particular error spot
+            "Can't connect to WebSocket server"
+        ))
+    })?;
 
     // send file name
     let file_name_utf8 = Utf8Bytes::from(file_name);
 
     socket
         .send(Message::Text(file_name_utf8))
-        .expect("Failed to send filename");
+        .map_err(|_| {
+            Box::new(io::Error::new(
+                io::ErrorKind::Other,
+                "Failed to send filename",
+            ))
+        })?;
 
     // wait for the server's acknowledgement
     match socket.read() {
@@ -566,7 +575,7 @@ pub fn upload<R: Read>(
         }
     }
 
-    let cipher = group_key.get_cipher();
+    let cipher = group_key.get_cipher().map_err(|_| "Failed to init AES-GCM")?;
 
     let fse = FileStreamEncryptor::new(cipher);
 
@@ -575,7 +584,12 @@ pub fn upload<R: Read>(
         .send(Message::Binary(Bytes::from_iter(
             fse.get_nonce_start().iter().map(|x| *x),
         )))
-        .unwrap();
+        .map_err(|_| {
+            Box::new(io::Error::new(
+                io::ErrorKind::Other,
+                "Could not send nonce_start to server",
+            ))
+        })?;
 
     let mut buf: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
     let mut chunk_ind = 0;
@@ -607,16 +621,17 @@ pub fn upload<R: Read>(
         chunk_ind += 1;
     }
 
-    socket
-        .send(Message::Text(Utf8Bytes::from("finish")))
-        .unwrap();
-    let file_id_read = socket.read().unwrap().into_data(); //get the file id
+    socket.send(Message::Text(Utf8Bytes::from("finish")))?;
+    let file_id_read = socket.read()?.into_data(); //get the file id
 
     let mut file_id_bytes: [u8; 8] = [0; 8];
-    file_id_bytes.copy_from_slice(&file_id_read);
+    if file_id_read.len() != 8 {
+        return Err("Server provided malformed file ID")?;
+    }
+    file_id_bytes.copy_from_slice(&file_id_read[..8]);
     let file_id = i64::from_be_bytes(file_id_bytes);
 
-    socket.send(Message::Close(None)).unwrap();
+    socket.send(Message::Close(None))?;
 
     Ok(file_id)
 }

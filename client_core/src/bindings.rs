@@ -333,6 +333,7 @@ pub extern "C" fn download_binded(
 /// * `-1` - Parameter error (null pointers or misaligned pointers).
 /// * `-2` - Internal casting errors.
 /// * `-3` - Internal library errors.
+/// * `-4` - Could not establish connection to WebSocket server.
 #[unsafe(no_mangle)]
 pub extern "C" fn upload_binded(
     server_url: *const c_char,
@@ -417,8 +418,15 @@ pub extern "C" fn upload_binded(
             Ok(file_id) => {
                 out_file_id.write(file_id);
                 0
+            },
+            Err(err_box) => {
+                if let Some(e) = err_box.downcast_ref::<std::io::Error>() {
+                    if e.kind() == std::io::ErrorKind::Unsupported {
+                        return -4;
+                    }
+                };
+                -3
             }
-            Err(_) => -3,
         }
     }
 }

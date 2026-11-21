@@ -97,6 +97,13 @@ fn main() {
         read_password().unwrap()
     });
 
+    // confirm password
+    eprint!("Confirm password: ");
+    io::stderr().flush().unwrap();
+    if password != read_password().unwrap() {
+        eprintln!("Passwords do not match");
+    }
+
     // register is a special case that we need to handle
     // before the others since the user SHOULDN'T exist yet
     if let Subcommands::Register {} = args.command {
