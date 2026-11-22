@@ -7,7 +7,7 @@ use std::{
 
 use corelib::client::PkKeyPair;
 
-use crate::{GetUserInfoError, get_user_info};
+use crate::{ApiCallError, get_user_info};
 
 /// Do *not* use this until initialized by one of the other exposed API functions; use this to create a handle to pass into exposed API functions.  
 ///
@@ -185,7 +185,7 @@ fn get_user_info_internal(
 
                 0
             }
-            Err(GetUserInfoError::PasswordFail) => {
+            Err(ApiCallError::PasswordFail) => {
                 if !out_error.is_null() {
                     const PASSWORD_ERROR_TEXT: [u8; 60] =
                         *b"Could not authenticate: Email/password don't match records.\0";
@@ -198,7 +198,7 @@ fn get_user_info_internal(
                 }
                 -5
             }
-            Err(GetUserInfoError::OtherWithDetails(e)) => {
+            Err(ApiCallError::OtherWithDetails(e)) => {
                 if !out_error.is_null() {
                     let error_message = format!("{}", e);
                     let error_message_bytes: Box<[u8]> = error_message.bytes().collect();
@@ -219,7 +219,7 @@ fn get_user_info_internal(
 
                 -6
             }
-            Err(GetUserInfoError::Other) => -7,
+            Err(ApiCallError::Other) => -7,
         }
     }
 }

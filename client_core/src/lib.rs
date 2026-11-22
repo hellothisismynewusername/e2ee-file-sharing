@@ -19,24 +19,25 @@ use reqwest::StatusCode;
 use rsa::pkcs8::DecodePublicKey;
 use tungstenite::{Bytes, Message, Utf8Bytes};
 
+/// this is pretty much just for differentiating email/pass error vs whatever else
 #[derive(Debug)]
-pub enum GetUserInfoError {
+pub enum ApiCallError {
     PasswordFail,
     OtherWithDetails(Box<dyn Error>),
     Other,
 }
 
-impl Display for GetUserInfoError {
+impl Display for ApiCallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GetUserInfoError::PasswordFail => write!(f, "GetUserInfoError: Email/password fail"),
-            GetUserInfoError::OtherWithDetails(e) => write!(f, "GetUserInfoError: Other: {}", e),
-            GetUserInfoError::Other => write!(f, "GetUserInfoError: Other"),
+            ApiCallError::PasswordFail => write!(f, "ApiCallError: Email/password fail"),
+            ApiCallError::OtherWithDetails(e) => write!(f, "ApiCallError: Other: {}", e),
+            ApiCallError::Other => write!(f, "ApiCallError: Other"),
         }
     }
 }
 
-impl Error for GetUserInfoError {}
+impl Error for ApiCallError {}
 
 /// Decrypts the user's private key and fetches their user info from the server
 ///
@@ -55,18 +56,18 @@ pub fn get_user_info(
     email: &str,
     password: &str,
     disk_key_path: &Path,
-) -> Result<(PkKeyPair, String, i64), GetUserInfoError> {
+) -> Result<(PkKeyPair, String, i64), ApiCallError> {
     // look in storage to recover our kp and key hash
     let bytes = fs::read(disk_key_path.join(email))
-        .map_err(|e| GetUserInfoError::OtherWithDetails(Box::new(e)))?;
+        .map_err(|e| ApiCallError::OtherWithDetails(Box::new(e)))?;
     let keys: DiskKeys = postcard::from_bytes(bytes.as_slice())
-        .map_err(|e| GetUserInfoError::OtherWithDetails(Box::new(e)))?;
+        .map_err(|e| ApiCallError::OtherWithDetails(Box::new(e)))?;
     let personal_key = PersonalKey::derive(email, password);
     let kp = keys.to_memory(&personal_key).map_err(|b| {
         if b {
-            GetUserInfoError::PasswordFail
+            ApiCallError::PasswordFail
         } else {
-            GetUserInfoError::Other
+            ApiCallError::Other
         }
     })?; // supposedly only ever "return[s] an error in the event the provided authentication tag does not match the given ciphertex"
     let encoded_password = BASE64_URL_SAFE.encode(personal_key.hash().to_vec());
@@ -81,33 +82,33 @@ pub fn get_user_info(
         .send() {
             Ok(x) => x,
             Err(e) => {
-                return Err(GetUserInfoError::OtherWithDetails(Box::new(e)));
+                return Err(ApiCallError::OtherWithDetails(Box::new(e)));
             }
         };
 
     let resp_status = resp.status();
 
     if !resp_status.is_success() {
-        return Err(GetUserInfoError::OtherWithDetails(Box::from(format!(
+        return Err(ApiCallError::OtherWithDetails(Box::from(format!(
             "Server responded to user info request with:\nStatus: {}\nResponse: {}",
             resp.status(),
             if let Ok(text) = resp.text() {
                 text
             } else {
-                return Err(GetUserInfoError::Other);
+                return Err(ApiCallError::Other);
             }
         ))));
     }
 
     let resp_bytes = resp
         .bytes()
-        .map_err(|e| return GetUserInfoError::OtherWithDetails(Box::new(e)))?;
+        .map_err(|e| return ApiCallError::OtherWithDetails(Box::new(e)))?;
 
     let resp_json = serde_json::from_slice::<UserId>(&resp_bytes);
     let info: UserId = match resp_json {
         Ok(x) => x,
         Err(e) => {
-            return Err(GetUserInfoError::OtherWithDetails(Box::new(
+            return Err(ApiCallError::OtherWithDetails(Box::new(
                 std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!(
@@ -420,6 +421,48 @@ fn create_group(
     }
     let group_id_response: GroupId = resp.json()?;
     Ok(group_id_response.group_id)
+}
+
+/// List files the user has access to.
+/// 
+/// # Arguments
+/// 
+/// * `server_url` - the url of the server
+/// * `email` - the email of the user
+/// * `encoded_password` - the base64-encoded password of the user
+/// 
+/// # Returns
+/// 
+/// A `Result` for `FileInfos`.
+pub fn list_files(
+    server_url: &str,
+    email: &str,
+    encoded_password: &str,
+) -> Result<FileInfos, Box<dyn Error>> {
+    let client = reqwest::blocking::Client::builder().build()?;
+
+    // make request to list files endpoint
+    let resp = client
+        .get(format!(
+            "{server_url}/api/v1/list-files?user_email={email}&user_password_hash={encoded_password}",
+        ))
+        .send()?;
+
+    if resp.status().is_success() {
+        Ok(resp.json::<FileInfos>()?)
+    } else {
+        match resp.status() {
+            StatusCode::BAD_REQUEST => {
+                Err(Box::new(ApiCallError::OtherWithDetails(Err("Failed to get files")?)))
+            },
+            StatusCode::UNAUTHORIZED => {
+                Err(Box::new(ApiCallError::PasswordFail))
+            }
+            _ => {
+                Err(Box::new(ApiCallError::Other))
+            }
+        }
+    }
 }
 
 /// Gets or creates a group on the server and returns the group id

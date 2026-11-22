@@ -58,6 +58,8 @@ enum Subcommands {
         #[arg(short, long)]
         stdin: bool,
     },
+    /// List files you have access to
+    List {}
 }
 
 // User-facing output should go in stderr, since the user
@@ -177,6 +179,25 @@ fn main() {
                 Err(e) => eprintln!("Failed to upload file: {e}"),
             }
         }
+        Subcommands::List {} => {
+            let call = client_core::list_files(
+                SERVER_URL,
+                &args.email,
+                &encoded_password,
+            );
+
+            if let Err(e) = call {
+                eprintln!("Failed to list files: {}", e);
+            } else {
+                let file_infos = call.unwrap().files;
+
+                eprintln!("Files: ");
+
+                for info in file_infos {
+                    eprintln!("File: '{}', id: {}", info.file_name, info.file_id);
+                }
+            }
+        },
         Subcommands::Register {} => unreachable!(),
     }
 }
