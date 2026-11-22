@@ -59,7 +59,7 @@ enum Subcommands {
         stdin: bool,
     },
     /// List files you have access to
-    List {}
+    List {},
 }
 
 // User-facing output should go in stderr, since the user
@@ -180,11 +180,7 @@ fn main() {
             }
         }
         Subcommands::List {} => {
-            let call = client_core::list_files(
-                SERVER_URL,
-                &args.email,
-                &encoded_password,
-            );
+            let call = client_core::list_files(SERVER_URL, &args.email, &encoded_password);
 
             if let Err(e) = call {
                 eprintln!("Failed to list files: {}", e);
@@ -197,7 +193,7 @@ fn main() {
                     eprintln!("File: '{}', id: {}", info.file_name, info.file_id);
                 }
             }
-        },
+        }
         Subcommands::Register {} => unreachable!(),
     }
 }

@@ -424,15 +424,15 @@ fn create_group(
 }
 
 /// List files the user has access to.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `server_url` - the url of the server
 /// * `email` - the email of the user
 /// * `encoded_password` - the base64-encoded password of the user
-/// 
+///
 /// # Returns
-/// 
+///
 /// A `Result` for `FileInfos`.
 pub fn list_files(
     server_url: &str,
@@ -452,15 +452,11 @@ pub fn list_files(
         Ok(resp.json::<FileInfos>()?)
     } else {
         match resp.status() {
-            StatusCode::BAD_REQUEST => {
-                Err(Box::new(ApiCallError::OtherWithDetails(Err("Failed to get files")?)))
-            },
-            StatusCode::UNAUTHORIZED => {
-                Err(Box::new(ApiCallError::PasswordFail))
-            }
-            _ => {
-                Err(Box::new(ApiCallError::Other))
-            }
+            StatusCode::BAD_REQUEST => Err(Box::new(ApiCallError::OtherWithDetails(Err(
+                "Failed to get files",
+            )?))),
+            StatusCode::UNAUTHORIZED => Err(Box::new(ApiCallError::PasswordFail)),
+            _ => Err(Box::new(ApiCallError::Other)),
         }
     }
 }

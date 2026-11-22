@@ -99,7 +99,7 @@ pub extern "C" fn get_user_info_binded(
     out_error: *mut c_char,
     out_error_len: usize,
 ) -> i32 {
-    ffi_catch_unwind_wrapper(|| {
+    ffi_catch_unwind_wrapper(|| unsafe {
         get_user_info_internal(
             server_url,
             email,
@@ -115,7 +115,7 @@ pub extern "C" fn get_user_info_binded(
     })
 }
 
-fn get_user_info_internal(
+unsafe fn get_user_info_internal(
     server_url: *const c_char,
     email: *const c_char,
     password: *const c_char,
@@ -247,10 +247,12 @@ pub extern "C" fn register_binded(
     password: *const c_char,
     disk_key_path: *const c_char,
 ) -> i32 {
-    ffi_catch_unwind_wrapper(|| register_internal(server_url, email, password, disk_key_path))
+    ffi_catch_unwind_wrapper(|| unsafe {
+        register_internal(server_url, email, password, disk_key_path)
+    })
 }
 
-fn register_internal(
+unsafe fn register_internal(
     server_url: *const c_char,
     email: *const c_char,
     password: *const c_char,
@@ -318,7 +320,7 @@ pub extern "C" fn download_binded(
     output: *const c_char,
     stdout: bool,
 ) -> i32 {
-    ffi_catch_unwind_wrapper(|| {
+    ffi_catch_unwind_wrapper(|| unsafe {
         download_internal(
             server_url,
             email,
@@ -331,7 +333,7 @@ pub extern "C" fn download_binded(
     })
 }
 
-fn download_internal(
+unsafe fn download_internal(
     server_url: *const c_char,
     email: *const c_char,
     encoded_password: *const c_char,
@@ -423,7 +425,7 @@ pub extern "C" fn upload_binded(
     email_count: usize,
     out_file_id: *mut i64,
 ) -> i32 {
-    ffi_catch_unwind_wrapper(|| {
+    ffi_catch_unwind_wrapper(|| unsafe {
         upload_internal(
             server_url,
             email,
@@ -438,7 +440,7 @@ pub extern "C" fn upload_binded(
     })
 }
 
-fn upload_internal(
+unsafe fn upload_internal(
     server_url: *const c_char,
     email: *const c_char,
     encoded_password: *const c_char,
@@ -531,5 +533,161 @@ fn upload_internal(
                 -3
             }
         }
+    }
+}
+
+/// Lists files the user can access and writes a null-terminated UTF-8 JSON `FileInfos` value.  
+///
+/// # Arguments  
+///
+/// * `server_url` - The URL of the server.
+/// * `email` - The email of the user.
+/// * `encoded_password` - The encoded password hash of the user.
+/// * `file_start_offset` - The zero-based index to start at, in ascending file ID order.
+/// * `out_file_infos_capacity` - The buffer capacity in bytes, including space for the null terminator.  
+///
+/// Out params:
+/// * `out_file_infos` - The caller-owned buffer for the JSON result.
+/// * `out_total_files` - The total file count before applying the offset.
+/// * `out_provided_files` - The number of complete entries written to the buffer.  
+///
+/// # Returns  
+///
+/// Error codes:
+/// * `-1` - Parameter error (null pointers, misaligned count pointers, or an invalid offset).
+/// * `-2` - An input string is not valid UTF-8.
+/// * `-3` - Failed to fetch or serialize the file list.
+/// * `-4` - The output buffer is smaller than the 13 bytes needed for an empty result and its null terminator.
+/// * `-5` - The server rejected the email or password hash.
+/// * `-67` (`ERR_PANIC`) - Caught panic.  
+///
+/// # Notes
+/// 
+/// Advance the offset by `out_provided_files` to request the next batch.
+/// An empty batch is `{"files":[]}`. If `out_provided_files` is `0` and the offset is less than `out_total_files`, retry with a larger buffer.  
+/// 
+/// Non-null input string pointers must point to null-terminated strings.
+/// The caller must provide a writable buffer of at least `out_file_infos_capacity` bytes and two aligned `i64` outputs.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn list_files_binded(
+    server_url: *const c_char,
+    email: *const c_char,
+    encoded_password: *const c_char,
+    file_start_offset: i64,
+    out_file_infos: *mut c_char,
+    out_file_infos_capacity: usize,
+    out_total_files: *mut i64,
+    out_provided_files: *mut i64,
+) -> i32 {
+    ffi_catch_unwind_wrapper(|| unsafe {
+        list_files_internal(
+            server_url,
+            email,
+            encoded_password,
+            file_start_offset,
+            out_file_infos,
+            out_file_infos_capacity,
+            out_total_files,
+            out_provided_files,
+        )
+    })
+}
+
+unsafe fn list_files_internal(
+    server_url: *const c_char,
+    email: *const c_char,
+    encoded_password: *const c_char,
+    file_start_offset: i64,
+    out_file_infos: *mut c_char,
+    out_file_infos_capacity: usize,
+    out_total_files: *mut i64,
+    out_provided_files: *mut i64,
+) -> i32 {
+    const JSON_PREFIX: &[u8] = br#"{"files":["#;
+    const JSON_SUFFIX: &[u8] = b"]}\0";
+
+    if server_url.is_null()
+        || email.is_null()
+        || encoded_password.is_null()
+        || out_file_infos.is_null()
+        || out_total_files.is_null()
+        || out_provided_files.is_null()
+        || file_start_offset < 0
+    {
+        return -1;
+    }
+    if !out_total_files.is_aligned() || !out_provided_files.is_aligned() {
+        return -1;
+    }
+    if out_file_infos_capacity < JSON_PREFIX.len() + JSON_SUFFIX.len() {
+        return -4;
+    }
+
+    unsafe {
+        let server_url = if let Ok(x) = CStr::from_ptr(server_url).to_str() {
+            x
+        } else {
+            return -2;
+        };
+        let email = if let Ok(x) = CStr::from_ptr(email).to_str() {
+            x
+        } else {
+            return -2;
+        };
+        let encoded_password = if let Ok(x) = CStr::from_ptr(encoded_password).to_str() {
+            x
+        } else {
+            return -2;
+        };
+        let file_start_offset = match usize::try_from(file_start_offset) {
+            Ok(x) => x,
+            Err(_) => return -1,
+        };
+        let mut file_infos = match crate::list_files(server_url, email, encoded_password) {
+            Ok(x) => x,
+            Err(e) if matches!(e.downcast_ref::<ApiCallError>(), Some(ApiCallError::PasswordFail)) => {
+                return -5;
+            }
+            Err(_) => return -3,
+        };
+        let total_files = match i64::try_from(file_infos.files.len()) {
+            Ok(x) => x,
+            Err(_) => return -3,
+        };
+
+        file_infos.files.sort_unstable_by_key(|file_info| file_info.file_id);
+        let mut json = JSON_PREFIX.to_vec();
+        let mut provided_files = 0_i64;
+        for file_info in file_infos.files.into_iter().skip(file_start_offset) {
+            let file_info_json = match serde_json::to_vec(&file_info) {
+                Ok(x) => x,
+                Err(_) => return -3,
+            };
+            let separator_length = usize::from(provided_files > 0);
+            let required_capacity = match json
+                .len()
+                .checked_add(separator_length)
+                .and_then(|x| x.checked_add(file_info_json.len()))
+                .and_then(|x| x.checked_add(JSON_SUFFIX.len()))
+            {
+                Some(x) => x,
+                None => return -3,
+            };
+            if required_capacity > out_file_infos_capacity {
+                break;
+            }
+            if provided_files > 0 {
+                json.push(b',');
+            }
+            json.extend_from_slice(&file_info_json);
+            provided_files += 1;
+        }
+
+        json.extend_from_slice(JSON_SUFFIX);
+        std::ptr::copy_nonoverlapping(json.as_ptr(), out_file_infos.cast::<u8>(), json.len());
+        out_total_files.write(total_files);
+        out_provided_files.write(provided_files);
+
+        0
     }
 }
