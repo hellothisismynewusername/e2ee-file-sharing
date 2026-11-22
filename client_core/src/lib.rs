@@ -152,7 +152,6 @@ pub fn register(
 
     // no key, so let's create one
     // create our personal_key and keypair
-    eprintln!("Registering user...");
     let personal_key = if let Ok(x) = PersonalKey::derive(email, password) {
         x
     } else {

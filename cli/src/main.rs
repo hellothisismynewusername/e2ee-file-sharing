@@ -109,6 +109,7 @@ fn main() {
     // register is a special case that we need to handle
     // before the others since the user SHOULDN'T exist yet
     if let Subcommands::Register {} = args.command {
+        eprintln!("Registering user...");
         if let Err(e) = client_core::register(SERVER_URL, &args.email, &password, disk_key_path) {
             eprintln!("Failed to register: {e}");
         } else {
