@@ -83,7 +83,7 @@ int32_t get_user_info_binded(const char *server_url,
  *
  * * `server_url` - The URL of the server
  * * `email` - The email of the user
- * * `password` - The password of the user
+ * * `password` - The password of the user. Can be an empty string (e.g "\0").
  * * `disk_key_path` - The path to the disk key directory  
  *
  * # Returns  
@@ -92,6 +92,7 @@ int32_t get_user_info_binded(const char *server_url,
  * * `-1` - Parameter error (null pointer).
  * * `-2` - Internal casting errors.
  * * `-3` - Internal library errors.
+ * * `-4` - Email too short, must be at least of length 8.
  * * `-67` (`ERR_PANIC`) - Caught panic.  
  */
 int32_t register_binded(const char *server_url,
@@ -161,3 +162,46 @@ int32_t upload_binded(const char *server_url,
                       const char *const *emails,
                       uintptr_t email_count,
                       int64_t *out_file_id);
+
+/**
+ * Lists files the user can access and writes a null-terminated UTF-8 JSON `FileInfos` value.  
+ *
+ * # Arguments  
+ *
+ * * `server_url` - The URL of the server.
+ * * `email` - The email of the user.
+ * * `encoded_password` - The encoded password hash of the user.
+ * * `file_start_offset` - The zero-based index to start at, in ascending file ID order.
+ * * `out_file_infos_capacity` - The buffer capacity in bytes, including space for the null terminator.  
+ *
+ * Out params:
+ * * `out_file_infos` - The caller-owned buffer for the JSON result.
+ * * `out_total_files` - The total file count before applying the offset.
+ * * `out_provided_files` - The number of complete entries written to the buffer.  
+ *
+ * # Returns  
+ *
+ * Error codes:
+ * * `-1` - Parameter error (null pointers, misaligned count pointers, or an invalid offset).
+ * * `-2` - An input string is not valid UTF-8.
+ * * `-3` - Failed to fetch or serialize the file list.
+ * * `-4` - The output buffer is smaller than the 13 bytes needed for an empty result and its null terminator.
+ * * `-5` - The server rejected the email or password hash.
+ * * `-67` (`ERR_PANIC`) - Caught panic.  
+ *
+ * # Notes
+ * 
+ * Advance the offset by `out_provided_files` to request the next batch.
+ * An empty batch is `{"files":[]}`. If `out_provided_files` is `0` and the offset is less than `out_total_files`, retry with a larger buffer.  
+ * 
+ * Non-null input string pointers must point to null-terminated strings.
+ * The caller must provide a writable buffer of at least `out_file_infos_capacity` bytes and two aligned `i64` outputs.
+ */
+int32_t list_files_binded(const char *server_url,
+                          const char *email,
+                          const char *encoded_password,
+                          int64_t file_start_offset,
+                          char *out_file_infos,
+                          uintptr_t out_file_infos_capacity,
+                          int64_t *out_total_files,
+                          int64_t *out_provided_files);

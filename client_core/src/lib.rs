@@ -19,10 +19,13 @@ use reqwest::StatusCode;
 use rsa::pkcs8::DecodePublicKey;
 use tungstenite::{Bytes, Message, Utf8Bytes};
 
-/// this is pretty much just for differentiating email/pass error vs whatever else
+/// This error type serves a couple different purposes in one.  
+/// 
+/// An improvement would be actually sorting out the different error types and having individual error types for those.
 #[derive(Debug)]
 pub enum ApiCallError {
     PasswordFail,
+    EmailTooShort,
     OtherWithDetails(Box<dyn Error>),
     Other,
 }
@@ -31,6 +34,7 @@ impl Display for ApiCallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ApiCallError::PasswordFail => write!(f, "ApiCallError: Email/password fail"),
+            ApiCallError::EmailTooShort => write!(f, "ApiCallError: Email too short, must be at least 8 characters long"),
             ApiCallError::OtherWithDetails(e) => write!(f, "ApiCallError: Other: {}", e),
             ApiCallError::Other => write!(f, "ApiCallError: Other"),
         }
@@ -62,7 +66,7 @@ pub fn get_user_info(
         .map_err(|e| ApiCallError::OtherWithDetails(Box::new(e)))?;
     let keys: DiskKeys = postcard::from_bytes(bytes.as_slice())
         .map_err(|e| ApiCallError::OtherWithDetails(Box::new(e)))?;
-    let personal_key = PersonalKey::derive(email, password);
+    let personal_key = PersonalKey::derive(email, password).map_err(|()| ApiCallError::EmailTooShort)?;
     let kp = keys.to_memory(&personal_key).map_err(|b| {
         if b {
             ApiCallError::PasswordFail
@@ -149,7 +153,15 @@ pub fn register(
     // no key, so let's create one
     // create our personal_key and keypair
     eprintln!("Registering user...");
-    let personal_key = PersonalKey::derive(email, password);
+    let personal_key = if let Ok(x) = PersonalKey::derive(email, password) {
+        x
+    } else {
+        return Err(
+            Box::new(
+                ApiCallError::EmailTooShort
+            )
+        )
+    };
     let kp = PkKeyPair::new();
     let pk_pub = kp.get_public_key_pem()?;
     let keys = DiskKeys::new(&personal_key, &kp);

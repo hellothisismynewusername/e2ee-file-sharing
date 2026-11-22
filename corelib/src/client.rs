@@ -34,7 +34,13 @@ impl PersonalKey {
     /// # Returns
     ///
     /// A new PersonalKey
-    pub fn derive(email: &str, password: &str) -> Self {
+    /// 
+    /// Panics on argon2 params construction failed or argon2 hash failed, returns Err(()) on email too short
+    pub fn derive(email: &str, password: &str) -> Result<Self, ()> {
+        if email.len() < 8 {
+            return Err(());
+        }
+
         let argon = Argon2::new(
             Algorithm::Argon2id,
             Version::default(),
@@ -56,7 +62,9 @@ impl PersonalKey {
             )
             .expect("argon2 hash failed");
 
-        PersonalKey { key: hash_bytes }
+        Ok(
+            PersonalKey { key: hash_bytes }
+        )
     }
 
     /// Produce *PasswordHash1* from the Cryptography Outline.
@@ -512,15 +520,15 @@ mod tests {
     fn test_personal_key() {
         let email = "test@test.com";
         let password = "abcdefghijklmnopqrstuvwxyz";
-        let personal_key = PersonalKey::derive(email, password);
-        let personal_key_2 = PersonalKey::derive(email, password);
+        let personal_key = PersonalKey::derive(email, password).unwrap();
+        let personal_key_2 = PersonalKey::derive(email, password).unwrap();
         assert_eq!(personal_key.key, personal_key_2.key);
         assert_eq!(personal_key.hash(), personal_key_2.hash());
     }
 
     #[test]
     fn test_disk_keys() {
-        let personal_key = PersonalKey::derive("test@test.com", "password123");
+        let personal_key = PersonalKey::derive("test@test.com", "password123").unwrap();
         let kp = PkKeyPair::new();
         let disk_keys = DiskKeys::new(&personal_key, &kp);
         // make sure that its to_memory works

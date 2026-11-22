@@ -197,7 +197,7 @@ unsafe fn get_user_info_internal(
                     );
                 }
                 -5
-            }
+            },
             Err(ApiCallError::OtherWithDetails(e)) => {
                 if !out_error.is_null() {
                     let error_message = format!("{}", e);
@@ -219,7 +219,7 @@ unsafe fn get_user_info_internal(
 
                 -6
             }
-            Err(ApiCallError::Other) => -7,
+            Err(_) => -7, // also covers EmailTooShort
         }
     }
 }
@@ -230,7 +230,7 @@ unsafe fn get_user_info_internal(
 ///
 /// * `server_url` - The URL of the server
 /// * `email` - The email of the user
-/// * `password` - The password of the user
+/// * `password` - The password of the user. Can be an empty string (e.g "\0").
 /// * `disk_key_path` - The path to the disk key directory  
 ///
 /// # Returns  
@@ -239,6 +239,7 @@ unsafe fn get_user_info_internal(
 /// * `-1` - Parameter error (null pointer).
 /// * `-2` - Internal casting errors.
 /// * `-3` - Internal library errors.
+/// * `-4` - Email too short, must be at least of length 8.
 /// * `-67` (`ERR_PANIC`) - Caught panic.  
 #[unsafe(no_mangle)]
 pub extern "C" fn register_binded(
@@ -286,6 +287,7 @@ unsafe fn register_internal(
 
         match crate::register(server_url, email, password, disk_key_path) {
             Ok(()) => 0,
+            Err(e) if matches!(e.downcast_ref::<ApiCallError>(), Some(ApiCallError::EmailTooShort)) => -4,
             Err(_) => -3,
         }
     }
